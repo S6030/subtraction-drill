@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fast Subtraction Drill</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f9fc;
+      color: #333;
+      text-align: center;
+      padding: 20px;
+    }
+    #setup, #quiz, #summary {
+      max-width: 360px;
+      margin: 20px auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      padding: 16px;
+    }
+    #setup p { font-size: 16px; margin-bottom: 12px; }
+    #question { font-size: 28px; margin-bottom: 12px; }
+    #answer {
+      font-size: 20px; width: 100px; text-align: center; padding: 6px;
+    }
+    #feedback {
+      font-size: 24px; display: inline-block; width: 80px;
+      vertical-align: middle;
+    }
+    .btn {
+      padding: 8px 16px; background: #4a90e2; color: #fff;
+      border: none; border-radius: 4px; cursor: pointer; margin-top: 8px;
+    }
+    .btn:hover { background: #357ab8; }
+    table {
+      width: 100%; border-collapse: collapse; margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid #ddd; padding: 6px; font-size: 14px;
+    }
+    th { background: #f0f4f8; }
+  </style>
+</head>
+<body>
+
+  <div id="setup">
+    <h2>Subtraction Drill</h2>
+    <p>For each pair [a, b], type the positive difference (b − a).<br>
+       There are <strong>30</strong> questions total.</p>
+    <button id="start-btn" class="btn">Start</button>
+  </div>
+
+  <div id="quiz" style="display:none;">
+    <div id="question"></div>
+    <input id="answer" autocomplete="off" placeholder="Difference">
+    <span id="feedback"></span>
+  </div>
+
+  <div id="summary" style="display:none;">
+    <h2>Results</h2>
+    <p id="score"></p>
+    <p id="grade"></p>
+    <h3>All Mistakes</h3>
+    <table>
+      <thead>
+        <tr><th>Pair</th><th>You wrote</th><th>Correct</th></tr>
+      </thead>
+      <tbody id="mistakes-body"></tbody>
+    </table>
+    <button id="restart-btn" class="btn">Restart</button>
+  </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const TOTAL = 30, TRAIN = 20;
+  let evalQueue = [], trainQueue = [];
+  let errors = {}, times = {}, mistakes = [];
+  let current, questionCount = 0, correctCount = 0, startTime = 0;
+
+  const startBtn     = document.getElementById('start-btn'),
+        restartBtn   = document.getElementById('restart-btn'),
+        setup        = document.getElementById('setup'),
+        quiz         = document.getElementById('quiz'),
+        summary      = document.getElementById('summary'),
+        questionEl   = document.getElementById('question'),
+        answerEl     = document.getElementById('answer'),
+        feedbackEl   = document.getElementById('feedback'),
+        scoreEl      = document.getElementById('score'),
+        gradeEl      = document.getElementById('grade'),
+        mistakesBody = document.getElementById('mistakes-body');
+
+  function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+
+  function makePair(){
+    let x = randInt(-300,300),
+        y = randInt(-300,300);
+    while(y === x) y = randInt(-300,300);
+    const a = Math.min(x,y),
+          b = Math.max(x,y);
+    return { a, b, correct: b - a, key:`[${a},${b}]` };
+  }
+
+  function shuffle(arr){
+    for(let i=arr.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]] = [arr[j],arr[i]];
+    }
+  }
+
+  function weightedPick(arr){
+    let totalW = 0;
+    arr.forEach(q => totalW += (errors[q.key]||0) + 1);
+    let r = Math.random()*totalW;
+    for(const q of arr){
+      r -= (errors[q.key]||0) + 1;
+      if(r <= 0) return q;
+    }
+    return arr[arr.length-1];
+  }
+
+  function startDrill(){
+    // build initial 30
+    evalQueue = [];
+    for(let i=0;i<TOTAL;i++){
+      evalQueue.push(makePair());
+    }
+    shuffle(evalQueue);
+    trainQueue = [];
+    errors    = {};
+    times     = {};
+    mistakes  = [];
+    questionCount = 0;
+    correctCount  = 0;
+
+    setup.style.display   = 'none';
+    summary.style.display = 'none';
+    quiz.style.display    = 'block';
+
+    nextQuestion();
+  }
+
+  function nextQuestion(){
+    if(questionCount >= TOTAL) return finishDrill();
+
+    if(evalQueue.length){
+      current = evalQueue.pop();
+    } else if(Object.keys(errors).length){
+      if(!trainQueue.length){
+        const topKeys = Object.entries(errors)
+          .sort((a,b)=>b[1]-a[1])
+          .slice(0,TRAIN)
+          .map(([k])=>k);
+        trainQueue = topKeys.map(k=>{
+          const [a,b] = k.slice(1,-1).split(',').map(Number);
+          return { a, b, correct: b - a, key:k };
+        });
+      }
+      if(trainQueue.length){
+        current = weightedPick(trainQueue);
+        // remove one so we don't repeat too often
+        trainQueue = trainQueue.filter(q=>q.key!==current.key);
+      } else {
+        // no more targeted drills
+        return finishDrill();
+      }
+    } else {
+      // no errors to train on
+      return finishDrill();
+    }
+
+    questionEl.textContent = current.key;
+    answerEl.value       = '';
+    feedbackEl.textContent = '';
+    answerEl.style.display = 'inline';
+    answerEl.focus();
+    startTime = performance.now();
+  }
+
+  answerEl.addEventListener('input', ()=>{
+    const v = answerEl.value.trim();
+    if(!/^\d+$/.test(v)) return;
+    if(v.length === String(current.correct).length){
+      const dt = (performance.now() - startTime)/1000;
+      times[current.key] = times[current.key]||[];
+      times[current.key].push(dt);
+
+      questionCount++;
+      if(Number(v) === current.correct){
+        feedbackEl.textContent = '✔';
+        feedbackEl.style.color = 'green';
+        correctCount++;
+        if(errors[current.key]) errors[current.key]--;
+      } else {
+        feedbackEl.textContent = `✖ ${current.correct}`;
+        feedbackEl.style.color = 'red';
+        errors[current.key] = (errors[current.key]||0) + 1;
+        mistakes.push({ key: current.key, given: Number(v), correct: current.correct });
+      }
+
+      setTimeout(nextQuestion, 500);
+    }
+  });
+
+  function finishDrill(){
+    quiz.style.display    = 'none';
+    summary.style.display = 'block';
+
+    scoreEl.textContent = `Score: ${correctCount}/${TOTAL}`;
+    const grade = Math.round(correctCount/TOTAL*10),
+          face  = grade>=8 ? '😊' : grade>=5 ? '😐' : '😞';
+    gradeEl.textContent = `Grade: ${grade}/10 ${face}`;
+
+    mistakesBody.innerHTML = '';
+    mistakes.forEach(m => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${m.key}</td><td>${m.given}</td><td>${m.correct}</td>`;
+      mistakesBody.appendChild(tr);
+    });
+  }
+
+  startBtn.addEventListener('click', () => {
+    startBtn.disabled = true;
+    startDrill();
+  });
+  restartBtn.addEventListener('click', () => {
+    startBtn.disabled = false;
+    setup.style.display   = 'block';
+    summary.style.display = 'none';
+  });
+});
+</script>
+
+</body>
+</html>
